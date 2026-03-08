@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kavishka.AI | Micrograd Visualizer</title>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        @keyframes flow {
+            from { stroke-dashoffset: 20; }
+            to { stroke-dashoffset: 0; }
+        }
+        .line-flow {
+            stroke-dasharray: 5;
+            animation: flow 1s linear infinite;
+        }
+        body { background-color: #020617; overflow: hidden; }
+        
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #1e293b;
+            border-radius: 2px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #22d3ee;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 0 10px rgba(34, 211, 238, 0.4);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 10px;
+        }
+        .glass {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // SVG Icon Components for reliability
+        const Play = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+        const RotateCcw = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>;
+        const ArrowRight = ({size=20}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>;
+        const ArrowLeft = ({size=20}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>;
+        const Zap = ({size=16}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>;
+        const CodeIcon = ({size=16}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>;
+        const Mail = ({size=16}) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg>;
+
+        const MicrogradSimulation = () => {
+            const [step, setStep] = React.useState(0);
+            const [animatingNode, setAnimatingNode] = React.useState(null);
+            const [tanhInput, setTanhInput] = React.useState(0.8);
+
+            // Coordinates optimized for wide-screen layout to prevent O-node overlap
+            const initialNodes = {
+                x1: { id: 'x1', label: 'x1', data: 2.0, grad: 0, x: 30, y: 50 },
+                w1: { id: 'w1', label: 'w1', data: -3.0, grad: 0, x: 30, y: 140 },
+                x2: { id: 'x2', label: 'x2', data: 0.0, grad: 0, x: 30, y: 260 },
+                w2: { id: 'w2', label: 'w2', data: 1.0, grad: 0, x: 30, y: 350 },
+                b:  { id: 'b',  label: 'b',  data: 6.881, grad: 0, x: 280, y: 440 },
+                m1: { id: 'm1', label: 'x1*w1', op: '*', inputs: ['x1', 'w1'], data: null, grad: 0, x: 170, y: 95 },
+                m2: { id: 'm2', label: 'x2*w2', op: '*', inputs: ['x2', 'w2'], data: null, grad: 0, x: 170, y: 305 },
+                s1: { id: 's1', label: 'sum', op: '+', inputs: ['m1', 'm2'], data: null, grad: 0, x: 310, y: 200 },
+                n:  { id: 'n',  label: 'n',   op: '+', inputs: ['s1', 'b'],  data: null, grad: 0, x: 450, y: 200 },
+                o:  { id: 'o',  label: 'o',   op: 'tanh', inputs: ['n'],     data: null, grad: 0, x: 590, y: 200 },
+            };
+
+            const [graph, setGraph] = React.useState(initialNodes);
+
+            const steps = [
+                { title: "1. The Neuron", icon: <CodeIcon />, desc: "The neuron architecture: n = (x1*w1 + x2*w2) + b. Information flows into the 'o' output." },
+                { title: "2. Forward Pass", icon: <Play />, desc: "Calculating results. Notice x2*w2 correctly calculates to 0.000." },
+                { title: "3. Activation", icon: <Zap />, desc: "Tanh squashes 'n' into a range between -1 and 1, creating the S-shaped activation curve." },
+                { title: "4. Graph Traversal", icon: <ArrowRight />, desc: "Building the topological sort. We process the graph backwards from output to inputs." },
+                { title: "5. Backpropagation", icon: <ArrowLeft />, desc: "Flowing backwards. We multiply local gradients by the global gradient (Chain Rule)." },
+                { title: "6. Accumulation", icon: <Zap />, desc: "Using += ensures that if a node has multiple paths, we sum all its influences." }
+            ];
+
+            const triggerLogic = async (targetStep) => {
+                if (targetStep === 1) { 
+                    const topo = ['m1', 'm2', 's1', 'n', 'o'];
+                    for (let id of topo) {
+                        setAnimatingNode(id);
+                        await new Promise(r => setTimeout(r, 600));
+                        setGraph(prev => {
+                            const node = prev[id];
+                            let val = 0;
+                            if (node.op === '*') val = prev[node.inputs[0]].data * prev[node.inputs[1]].data;
+                            if (node.op === '+') val = prev[node.inputs[0]].data + prev[node.inputs[1]].data;
+                            if (node.op === 'tanh') val = Math.tanh(prev[node.inputs[0]].data);
+                            return { ...prev, [id]: { ...node, data: val } };
+                        });
+                    }
+                }
+                if (targetStep === 4) { 
+                    const revTopo = ['o', 'n', 's1', 'b', 'm2', 'm1', 'w2', 'x2', 'w1', 'x1'];
+                    setGraph(prev => ({...prev, o: {...prev.o, grad: 1.0}}));
+                    for (let id of revTopo) {
+                        setAnimatingNode(id);
+                        await new Promise(r => setTimeout(r, 700));
+                        setGraph(prev => {
+                            const current = prev[id];
+                            if (!current.inputs) return prev;
+                            const nextGraph = { ...prev };
+                            current.inputs.forEach(inputId => {
+                                let localDeriv = 1.0;
+                                if (current.op === '*') {
+                                    localDeriv = prev[current.inputs.find(i => i !== inputId)].data;
+                                } else if (current.op === 'tanh') {
+                                    localDeriv = 1 - (current.data ** 2);
+                                }
+                                nextGraph[inputId].grad += localDeriv * current.grad;
+                            });
+                            return nextGraph;
+                        });
+                    }
+                }
+                setAnimatingNode(null);
+            };
+
+            const handleNext = () => {
+                if (step < steps.length - 1) {
+                    const nextStep = step + 1;
+                    setStep(nextStep);
+                    triggerLogic(nextStep);
+                }
+            };
+
+            const exp2x = Math.exp(2 * tanhInput);
+            const currentTanhVal = (exp2x - 1) / (exp2x + 1);
+
+            return (
+                <div className="h-screen w-full bg-slate-950 text-slate-200 flex flex-col font-sans selection:bg-cyan-500/30">
+                    {/* Header Banner */}
+                    <div className="h-24 glass border-b border-slate-800 px-8 flex items-center justify-between shadow-2xl z-20">
+                        <div className="flex items-center gap-8">
+                            <div className="flex flex-col">
+                                <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 to-pink-500 tracking-tighter uppercase italic">Kavishka.AI</h1>
+                                <span className="text-[10px] font-bold text-slate-500 tracking-[0.3em] uppercase">Neural Visualizer v5.0</span>
+                            </div>
+                            <div className="h-10 w-px bg-slate-800" />
+                            <div className="flex items-center gap-6">
+                                <div className="p-3 bg-cyan-500/10 rounded-2xl border border-cyan-500/20 text-cyan-400">
+                                    {steps[step].icon}
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-black text-white tracking-tight uppercase leading-none">{steps[step].title}</h2>
+                                    <p className="text-slate-400 text-xs mt-1">{steps[step].desc}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                             <div className="flex items-center gap-1 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
+                                <button disabled={step === 0} onClick={() => setStep(s => s - 1)} className="p-2 hover:bg-slate-800 rounded-lg disabled:opacity-20 transition-all"><ArrowLeft size={16}/></button>
+                                <span className="text-[10px] font-black px-4 text-slate-600 uppercase tracking-widest">Step {step + 1}</span>
+                                <button disabled={step === steps.length - 1} onClick={handleNext} className="p-2 text-cyan-400 hover:bg-cyan-900/40 rounded-lg disabled:opacity-20 transition-all"><ArrowRight size={16}/></button>
+                            </div>
+                            <button onClick={() => { setGraph(initialNodes); setStep(0); }} className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-[10px] font-black uppercase tracking-widest rounded-xl border border-slate-800 transition-all active:scale-95 flex items-center gap-2">
+                                <RotateCcw /> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 flex overflow-hidden">
+                        {/* Canvas Area */}
+                        <div className="flex-1 relative bg-[#020617] p-8 overflow-auto custom-scrollbar">
+                            <div className="relative w-[750px] h-[500px] mt-4">
+                                <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                                    {Object.values(graph).map(node => node.inputs?.map(inp => (
+                                        <line key={`${inp}-${node.id}`} 
+                                              x1={graph[inp].x + 112} y1={graph[inp].y + 40} 
+                                              x2={node.x} y2={node.y + 40} 
+                                              stroke={animatingNode === node.id ? '#22d3ee' : '#1e293b'} 
+                                              strokeWidth={animatingNode === node.id ? "4" : "2"} 
+                                              className="transition-all duration-300" />
+                                    )))}
+                                </svg>
+                                {Object.values(graph).map(node => (
+                                    <div key={node.id} 
+                                         className={`absolute w-28 h-20 bg-slate-900 border-2 rounded-2xl flex flex-col items-center justify-center transition-all duration-300 shadow-2xl
+                                            ${animatingNode === node.id ? 'border-cyan-400 scale-110 ring-4 ring-cyan-400/10' : 'border-slate-800'}
+                                            ${node.grad !== 0 ? 'border-pink-500/30' : ''}`}
+                                         style={{ left: node.x, top: node.y }}>
+                                        <div className="text-[8px] text-slate-500 uppercase font-black tracking-widest absolute -top-4 left-0">{node.label}</div>
+                                        <div className="text-sm font-mono font-bold text-white">
+                                            {node.data === null ? '?' : node.data.toFixed(3)}
+                                        </div>
+                                        <div className={`text-[10px] font-bold mt-1 ${node.grad !== 0 ? 'text-pink-500 animate-pulse' : 'text-slate-700'}`}>
+                                            ∇: {node.grad.toFixed(3)}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Sidebar */}
+                        <div className="w-[420px] border-l border-slate-800 glass p-8 flex flex-col gap-6 overflow-y-auto custom-scrollbar shadow-[-10px_0_30px_rgba(0,0,0,0.5)]">
+                            <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-2 flex items-center gap-2">
+                                <Zap size={14} /> Logic Core
+                            </h3>
+
+                            {/* Tanh Visual */}
+                            <div className="bg-slate-950/80 rounded-3xl p-6 border border-slate-800 shadow-inner">
+                                <div className="flex items-center gap-2 mb-4">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">Tanh Activation</span>
+                                </div>
+                                <div className="bg-black/40 p-4 rounded-xl border border-slate-800 text-center mb-6">
+                                    <div className="text-cyan-400 font-mono text-[11px] leading-relaxed">
+                                        tanh(x) = <span className="underline underline-offset-4 decoration-cyan-500/40">(e<sup>2x</sup> - 1) / (e<sup>2x</sup> + 1)</span>
+                                    </div>
+                                </div>
+                                <input type="range" min="-3" max="3" step="0.1" value={tanhInput} onChange={e => setTanhInput(parseFloat(e.target.value))} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400" />
+                                <div className="flex justify-between text-[10px] font-mono text-slate-500 mt-3 uppercase font-bold">
+                                    <span>In: {tanhInput.toFixed(2)}</span>
+                                    <span className="text-cyan-400 font-black">Out: {currentTanhVal.toFixed(3)}</span>
+                                </div>
+                            </div>
+
+                            {/* Python Code Reference */}
+                            <div className="bg-slate-950/80 rounded-3xl p-6 border border-slate-800 flex-1 flex flex-col">
+                                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-5">Backpropagation Engine</h4>
+                                <div className="space-y-4 font-mono">
+                                    {/* ADDITION CODE */}
+                                    <div className={`p-4 rounded-xl border transition-all duration-300 ${animatingNode && (graph[animatingNode].op === '+') ? 'bg-indigo-500/10 border-indigo-500/50' : 'bg-black/30 border-slate-800 opacity-30'}`}>
+                                        <div className="text-[9px] text-indigo-400 mb-2 uppercase font-bold">Addition Logic [+]</div>
+                                        <code className="text-[10px] leading-relaxed text-indigo-200">
+                                            def __add__(self, other):<br/>
+                                            &nbsp;&nbsp;out = Value(self.data + other.data)<br/>
+                                            &nbsp;&nbsp;def _backward():<br/>
+                                            &nbsp;&nbsp;&nbsp;&nbsp;self.grad += 1.0 * out.grad<br/>
+                                            &nbsp;&nbsp;&nbsp;&nbsp;other.grad += 1.0 * out.grad
+                                        </code>
+                                    </div>
+                                    
+                                    {/* MULTIPLICATION CODE */}
+                                    <div className={`p-4 rounded-xl border transition-all duration-300 ${animatingNode && graph[animatingNode].op === '*' ? 'bg-cyan-500/10 border-cyan-400' : 'bg-black/30 border-slate-800 opacity-30'}`}>
+                                        <div className="text-[9px] text-cyan-400 mb-2 uppercase font-bold">Multiplication Logic [*]</div>
+                                        <code className="text-[10px] leading-relaxed text-cyan-200">
+                                            def __mul__(self, other):<br/>
+                                            &nbsp;&nbsp;out = Value(self.data * other.data)<br/>
+                                            &nbsp;&nbsp;def _backward():<br/>
+                                            &nbsp;&nbsp;&nbsp;&nbsp;self.grad += other.data * out.grad<br/>
+                                            &nbsp;&nbsp;&nbsp;&nbsp;other.grad += self.data * out.grad
+                                        </code>
+                                    </div>
+                                    
+                                    {/* TANH CODE */}
+                                    <div className={`p-4 rounded-xl border transition-all duration-300 ${animatingNode === 'o' ? 'bg-pink-500/10 border-pink-500/50' : 'bg-black/30 border-slate-800 opacity-30'}`}>
+                                        <div className="text-[9px] text-pink-400 mb-2 uppercase font-bold">Activation Logic [tanh]</div>
+                                        <code className="text-[10px] leading-relaxed text-pink-200">
+                                            def tanh(self):<br/>
+                                            &nbsp;&nbsp;t = math.tanh(self.data)<br/>
+                                            &nbsp;&nbsp;def _backward():<br/>
+                                            &nbsp;&nbsp;&nbsp;&nbsp;self.grad += (1 - t**2) * out.grad
+                                        </code>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Brand Footer */}
+                            <div className="mt-4 pt-6 border-t border-slate-800">
+                                <div className="flex items-center justify-between mb-4">
+                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Kavishka.AI</span>
+                                    <div className="flex items-center gap-2">
+                                         <div className={`w-2 h-2 rounded-full ${animatingNode ? 'bg-green-500 animate-pulse' : 'bg-slate-700'}`} />
+                                         <span className="text-[9px] font-bold text-slate-400">{animatingNode ? 'ACTIVE_TRACE' : 'IDLE'}</span>
+                                    </div>
+                                </div>
+                                <a href="mailto:linkinkavi@gmail.com" className="flex items-center gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800 hover:border-cyan-500/40 transition-all group">
+                                    <div className="p-2 bg-slate-900 rounded-lg text-slate-500 group-hover:text-cyan-400 transition-colors">
+                                        <Mail size={14} />
+                                    </div>
+                                    <span className="text-[10px] font-bold text-slate-400 group-hover:text-white transition-colors">linkinkavi@gmail.com</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<MicrogradSimulation />);
+    </script>
+</body>
+</html>
